@@ -1,0 +1,13 @@
+spotify_import:
+  client_id: null         # Required — Spotify app client ID
+  client_secret: null     # Required — Spotify app client secret
+  redirect_uri: null      # Required — e.g. https://music.example.com/spotify/callback
+
+  # Fuzzy match threshold (0–100). Lower = more matches but more false positives.
+  # 82 is a good starting point; raise to 90+ for stricter matching.
+  match_threshold: 82
+
+  # Set to true to let Spotify ratings overwrite existing manual ratings, even
+  # if the manual rating is higher. Default: false (only write if no rating exists
+  # or if the Spotify-derived rating is higher).
+  overwrite_ratings: false

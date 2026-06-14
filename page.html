@@ -1,0 +1,120 @@
+<section id="spotify-page" class="section" style="display:none">
+  <div class="container">
+    <h1 class="title">Spotify</h1>
+    <p class="subtitle">Import ratings from your Spotify library into Anagnorisis.</p>
+
+    <!-- Not configured -->
+    <div id="spotify-not-configured" class="notification is-warning" style="display:none">
+      <strong>Setup required.</strong> Add the following to your <code>config.yaml</code> and restart:
+      <pre style="margin-top:0.75rem">spotify_import:
+  client_id: "YOUR_CLIENT_ID"
+  client_secret: "YOUR_CLIENT_SECRET"
+  redirect_uri: "https://YOUR_INSTANCE/spotify/callback"</pre>
+      <p>Create a Spotify app at
+        <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">
+          developer.spotify.com/dashboard
+        </a>
+        and add the redirect URI to its allowlist.
+      </p>
+    </div>
+
+    <!-- Connection card -->
+    <div id="spotify-configured" style="display:none">
+      <div class="box">
+        <div class="level">
+          <div class="level-left">
+            <div class="level-item">
+              <div>
+                <p class="heading">Connection</p>
+                <p id="spotify-connection-status" class="title is-5">Checking...</p>
+              </div>
+            </div>
+          </div>
+          <div class="level-right">
+            <div class="level-item">
+              <a id="spotify-connect-btn" href="/spotify/auth" class="button is-success" style="display:none">
+                Connect to Spotify
+              </a>
+              <a id="spotify-disconnect-btn" href="/spotify/disconnect"
+                 class="button is-light is-small" style="display:none"
+                 onclick="return confirm('Disconnect Spotify? Your existing ratings will not be removed.')">
+                Disconnect
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sync card (shown when connected) -->
+      <div id="spotify-sync-section" style="display:none">
+        <div class="box">
+          <div class="level">
+            <div class="level-left">
+              <div class="level-item">
+                <div>
+                  <p class="heading">Last sync</p>
+                  <p id="spotify-last-synced" class="title is-5">Never</p>
+                </div>
+              </div>
+              <div class="level-item" style="margin-left:2rem">
+                <div class="tags has-addons">
+                  <span class="tag is-dark">Liked</span>
+                  <span id="spotify-liked-count" class="tag is-info">0</span>
+                </div>
+              </div>
+              <div class="level-item">
+                <div class="tags has-addons">
+                  <span class="tag is-dark">Matched</span>
+                  <span id="spotify-matched-count" class="tag is-success">0</span>
+                </div>
+              </div>
+              <div class="level-item">
+                <div class="tags has-addons">
+                  <span class="tag is-dark">Unmatched</span>
+                  <span id="spotify-unmatched-count" class="tag is-warning">0</span>
+                </div>
+              </div>
+            </div>
+            <div class="level-right">
+              <div class="level-item">
+                <button id="spotify-sync-btn" class="button is-primary" onclick="spotifySync()">
+                  Sync Now
+                </button>
+              </div>
+            </div>
+          </div>
+          <p id="spotify-sync-status" class="help" style="display:none"></p>
+        </div>
+
+        <!-- Unmatched tracks -->
+        <div id="spotify-unmatched-section" style="display:none">
+          <h2 class="title is-5">Unmatched tracks
+            <span id="spotify-unmatched-badge" class="tag is-warning ml-2">0</span>
+          </h2>
+          <p class="help mb-3">
+            These tracks are in your Spotify library but couldn't be matched to a local file.
+            Dismiss tracks you don't have locally.
+          </p>
+          <table class="table is-fullwidth is-striped is-hoverable">
+            <thead>
+              <tr>
+                <th>Artist</th>
+                <th>Title</th>
+                <th>Album</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="spotify-unmatched-tbody"></tbody>
+          </table>
+          <nav class="pagination is-small" role="navigation">
+            <button id="spotify-unmatched-prev" class="pagination-previous" onclick="spotifyUnmatchedPage(-1)">Previous</button>
+            <button id="spotify-unmatched-next" class="pagination-next" onclick="spotifyUnmatchedPage(1)">Next</button>
+            <p id="spotify-unmatched-info" class="pagination-list help"></p>
+          </nav>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script type="module" src="modules/spotify_import/js/main.js"></script>
