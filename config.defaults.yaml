@@ -7,7 +7,9 @@ spotify_import:
   # 82 is a good starting point; raise to 90+ for stricter matching.
   match_threshold: 82
 
-  # Set to true to let Spotify ratings overwrite existing manual ratings, even
-  # if the manual rating is higher. Default: false (only write if no rating exists
-  # or if the Spotify-derived rating is higher).
-  overwrite_ratings: false
+  # Controls how Spotify-derived ratings interact with existing manual ratings.
+  # Options:
+  #   never     — only write if the track has no rating yet
+  #   if_higher — write if no rating exists or Spotify rating is higher (default)
+  #   always    — write whenever Spotify has a rating, regardless of existing value
+  overwrite_ratings: if_higher

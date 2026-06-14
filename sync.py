@@ -169,7 +169,7 @@ def run_sync(app, sp, cfg: dict, status_callback=None) -> tuple[int, int]:
 
     spotify_cfg = cfg.get('spotify_import', {})
     threshold = float(spotify_cfg.get('match_threshold', 82))
-    overwrite = bool(spotify_cfg.get('overwrite_ratings', False))
+    overwrite_mode = spotify_cfg.get('overwrite_ratings', 'if_higher')
 
     # 1. Liked tracks
     status('Fetching liked tracks from Spotify...')
@@ -288,7 +288,13 @@ def run_sync(app, sp, cfg: dict, status_callback=None) -> tuple[int, int]:
             if file_path and rating is not None:
                 music_entry = music_db.MusicLibrary.query.filter_by(file_path=file_path).first()
                 if music_entry:
-                    if overwrite or music_entry.user_rating is None or rating > music_entry.user_rating:
+                    existing_rating = music_entry.user_rating
+                    should_write = (
+                        overwrite_mode == 'always'
+                        or existing_rating is None
+                        or (overwrite_mode == 'if_higher' and rating > existing_rating)
+                    )
+                    if should_write:
                         music_entry.user_rating = rating
                         music_entry.user_rating_date = datetime.datetime.utcnow()
                 matched_count += 1
