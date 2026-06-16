@@ -2,6 +2,16 @@ from datetime import datetime
 from src.db_models import db
 
 
+class SpotifySettings(db.Model):
+    """App credentials, settable via the UI. Falls back to config.yaml when unset."""
+    __tablename__ = 'spotify_settings'
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.String, nullable=True)
+    client_secret = db.Column(db.String, nullable=True)
+    redirect_uri = db.Column(db.String, nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class SpotifyToken(db.Model):
     __tablename__ = 'spotify_token'
     id = db.Column(db.Integer, primary_key=True)

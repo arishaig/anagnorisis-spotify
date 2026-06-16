@@ -68,17 +68,37 @@ class _DBCacheHandler(CacheHandler):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _spotify_cfg(cfg):
+def _config_cfg(cfg):
+    """Credentials declared in config.yaml (the fallback source)."""
     return OmegaConf.select(cfg, 'spotify_import', default={}) or {}
 
 
+def _resolve_credentials(cfg) -> dict:
+    """
+    Resolve Spotify app credentials. UI-saved settings (DB) take precedence;
+    config.yaml is the fallback. Must be called within an app context.
+    """
+    defaults = _config_cfg(cfg)
+    row = spotify_db.SpotifySettings.query.first()
+
+    def pick(field):
+        val = getattr(row, field, None) if row else None
+        return val if val else defaults.get(field)
+
+    return {
+        'client_id': pick('client_id'),
+        'client_secret': pick('client_secret'),
+        'redirect_uri': pick('redirect_uri'),
+    }
+
+
 def _is_configured(cfg) -> bool:
-    s = _spotify_cfg(cfg)
+    s = _resolve_credentials(cfg)
     return bool(s.get('client_id') and s.get('client_secret') and s.get('redirect_uri'))
 
 
 def _make_oauth(cfg, cache_handler) -> SpotifyOAuth:
-    s = _spotify_cfg(cfg)
+    s = _resolve_credentials(cfg)
     return SpotifyOAuth(
         client_id=s.get('client_id'),
         client_secret=s.get('client_secret'),
@@ -152,6 +172,44 @@ def init_socket_events(socketio, app=None, cfg=None, data_folder='./project_data
 
     # --- SocketIO handlers ----------------------------------------------
 
+    @socketio.on('emit_spotify_page_get_settings')
+    def get_settings():
+        """Return current credentials for the settings form. The secret is never
+        sent back — only whether one is stored."""
+        creds = _resolve_credentials(cfg)
+        config_creds = _config_cfg(cfg)
+        return {
+            'client_id': creds.get('client_id') or '',
+            'redirect_uri': creds.get('redirect_uri') or '',
+            'client_secret_set': bool(creds.get('client_secret')),
+            # Surface which fields come from config.yaml so the UI can hint that
+            # they're managed there (DB still overrides if the user saves a value).
+            'from_config': {
+                'client_id': bool(config_creds.get('client_id')),
+                'client_secret': bool(config_creds.get('client_secret')),
+                'redirect_uri': bool(config_creds.get('redirect_uri')),
+            },
+        }
+
+    @socketio.on('emit_spotify_page_save_settings')
+    def save_settings(data):
+        row = spotify_db.SpotifySettings.query.first()
+        if not row:
+            row = spotify_db.SpotifySettings()
+            db.session.add(row)
+        row.client_id = (data.get('client_id') or '').strip() or None
+        row.redirect_uri = (data.get('redirect_uri') or '').strip() or None
+        # Only overwrite the secret when a new value is supplied; a blank field
+        # leaves the stored secret untouched. An explicit clear wipes it.
+        secret = (data.get('client_secret') or '').strip()
+        if secret:
+            row.client_secret = secret
+        elif data.get('clear_secret'):
+            row.client_secret = None
+        row.updated_at = datetime.datetime.utcnow()
+        db.session.commit()
+        return {'ok': True, 'configured': _is_configured(cfg)}
+
     @socketio.on('emit_spotify_page_get_status')
     def get_status():
         configured = _is_configured(cfg)
@@ -183,7 +241,10 @@ def init_socket_events(socketio, app=None, cfg=None, data_folder='./project_data
         raw_cfg = OmegaConf.to_container(cfg, resolve=True)
 
         def task(ctx):
-            oauth = _make_oauth(cfg, cache_handler)
+            # _make_oauth resolves credentials from the DB, so it needs an app
+            # context (run_sync manages its own context internally).
+            with app.app_context():
+                oauth = _make_oauth(cfg, cache_handler)
             sp = spotipy.Spotify(auth_manager=oauth)
             matched, unmatched = run_sync(app, sp, raw_cfg, status_callback=lambda m: ctx.update(0, m))
             ctx.update(1.0, f'Done: {matched} matched, {unmatched} unmatched.')

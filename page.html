@@ -3,20 +3,47 @@
     <h1 class="title">Spotify</h1>
     <p class="subtitle">Import ratings from your Spotify library into Anagnorisis.</p>
 
-    <!-- Not configured -->
-    <div id="spotify-not-configured" class="notification is-warning" style="display:none">
-      <strong>Setup required.</strong> Add the following to your <code>config.yaml</code> and restart:
-      <pre style="margin-top:0.75rem">spotify_import:
-  client_id: "YOUR_CLIENT_ID"
-  client_secret: "YOUR_CLIENT_SECRET"
-  redirect_uri: "https://YOUR_INSTANCE/spotify/callback"</pre>
-      <p>Create a Spotify app at
-        <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">
-          developer.spotify.com/dashboard
-        </a>
-        and add the redirect URI to its allowlist.
+    <!-- App credentials (collapsible; auto-opens when not yet configured) -->
+    <details id="spotify-settings" class="box">
+      <summary class="title is-5" style="cursor:pointer">Spotify app credentials</summary>
+      <p class="help mt-2 mb-4">
+        Create an app at
+        <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a>,
+        then paste its Client ID and Secret below. Add the redirect URI to the app's
+        <strong>Redirect URIs</strong> allowlist. (These can also be set in
+        <code>config.yaml</code> under <code>spotify_import</code> — values saved here override it.)
       </p>
-    </div>
+
+      <div class="field">
+        <label class="label">Client ID</label>
+        <div class="control">
+          <input id="spotify-client-id" class="input" type="text" placeholder="Spotify app client ID" autocomplete="off">
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="label">Client Secret</label>
+        <div class="control">
+          <input id="spotify-client-secret" class="input" type="password" placeholder="Spotify app client secret" autocomplete="new-password">
+        </div>
+        <p id="spotify-secret-hint" class="help" style="display:none">A secret is already saved. Leave blank to keep it.</p>
+      </div>
+
+      <div class="field">
+        <label class="label">Redirect URI</label>
+        <div class="control">
+          <input id="spotify-redirect-uri" class="input" type="text" placeholder="https://your-instance/spotify/callback">
+        </div>
+        <p class="help">Add this <em>exact</em> URI to your Spotify app's Redirect URIs allowlist.</p>
+      </div>
+
+      <div class="field">
+        <div class="control">
+          <button id="spotify-save-settings" class="button is-primary" onclick="spotifySaveSettings()">Save credentials</button>
+          <span id="spotify-settings-status" class="help is-inline ml-2"></span>
+        </div>
+      </div>
+    </details>
 
     <!-- Connection card -->
     <div id="spotify-configured" style="display:none">

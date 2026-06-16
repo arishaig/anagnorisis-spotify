@@ -18,8 +18,56 @@ document.addEventListener('DOMContentLoaded', () => {
     window.history.replaceState({}, '', window.location.pathname);
   }
 
+  loadSettings();
   loadStatus();
 });
+
+// ---------------------------------------------------------------------------
+// App credentials
+// ---------------------------------------------------------------------------
+
+function loadSettings() {
+  socket.emit('emit_spotify_page_get_settings', {}, (data) => {
+    setValue('spotify-client-id', data.client_id || '');
+    // Prefill redirect URI with a sensible default derived from the current host.
+    const redirect = data.redirect_uri || `${window.location.origin}/spotify/callback`;
+    setValue('spotify-redirect-uri', redirect);
+
+    const secretInput = document.getElementById('spotify-client-secret');
+    const hint = document.getElementById('spotify-secret-hint');
+    if (data.client_secret_set) {
+      if (secretInput) secretInput.placeholder = '••••••••  (saved — leave blank to keep)';
+      if (hint) hint.style.display = '';
+    } else {
+      if (hint) hint.style.display = 'none';
+    }
+  });
+}
+
+window.spotifySaveSettings = function () {
+  const btn = document.getElementById('spotify-save-settings');
+  const statusEl = document.getElementById('spotify-settings-status');
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.textContent = 'Saving...';
+
+  const payload = {
+    client_id: getValue('spotify-client-id'),
+    client_secret: getValue('spotify-client-secret'),
+    redirect_uri: getValue('spotify-redirect-uri'),
+  };
+
+  socket.emit('emit_spotify_page_save_settings', payload, (resp) => {
+    if (btn) btn.disabled = false;
+    if (resp && resp.ok) {
+      if (statusEl) statusEl.textContent = 'Saved.';
+      setValue('spotify-client-secret', ''); // never keep the secret in the field
+      loadSettings();
+      loadStatus();
+    } else {
+      if (statusEl) statusEl.textContent = 'Save failed.';
+    }
+  });
+};
 
 // ---------------------------------------------------------------------------
 // Status
@@ -27,13 +75,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function loadStatus() {
   socket.emit('emit_spotify_page_get_status', {}, (data) => {
+    const settings = document.getElementById('spotify-settings');
+
     if (!data.configured) {
-      show('spotify-not-configured');
+      if (settings) settings.open = true; // expand the credentials form
       hide('spotify-configured');
       return;
     }
 
-    hide('spotify-not-configured');
+    if (settings) settings.open = false; // collapse once configured
     show('spotify-configured');
 
     if (data.connected) {
@@ -170,6 +220,8 @@ window.dismissUnmatched = function (id) {
 function show(id) { const el = document.getElementById(id); if (el) el.style.display = ''; }
 function hide(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
 function setText(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
+function getValue(id) { const el = document.getElementById(id); return el ? el.value : ''; }
+function setValue(id, val) { const el = document.getElementById(id); if (el) el.value = val; }
 function esc(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

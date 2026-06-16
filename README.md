@@ -45,20 +45,36 @@ pip install -r modules/spotify_import/requirements.txt
 
 ## Configuration
 
-Add to your Anagnorisis `config.yaml`:
+There are two ways to supply your Client ID, Client Secret, and redirect URI.
+
+### Option A — in the UI (recommended)
+
+Open the **Spotify** tab. If credentials aren't set yet, the **Spotify app credentials**
+form is expanded: paste your Client ID and Secret, confirm the pre-filled redirect URI,
+and click **Save credentials**. They're stored in the database — nothing to put in
+`config.yaml`, and the secret is never sent back to the browser once saved.
+
+### Option B — in `config.yaml`
+
+Useful for disaster recovery or declarative setups. UI-saved values override these.
 
 ```yaml
 spotify_import:
   client_id: "YOUR_CLIENT_ID"
   client_secret: "YOUR_CLIENT_SECRET"
   redirect_uri: "https://YOUR_ANAGNORISIS_HOST/spotify/callback"
-
-  # Optional
-  match_threshold: 82       # 0–100 fuzzy match strictness (default: 82)
-  overwrite_ratings: false  # Overwrite existing ratings even if higher (default: false)
 ```
 
-Restart Anagnorisis. A **Spotify** tab will appear in the UI.
+### Optional tuning (either method)
+
+```yaml
+spotify_import:
+  match_threshold: 82          # 0–100 fuzzy match strictness (default: 82)
+  overwrite_ratings: if_higher # never | if_higher | always (default: if_higher)
+```
+
+Restart Anagnorisis (or just open the tab if it's already running). A **Spotify** tab
+appears in the UI automatically — the module is discovered from its folder name.
 
 ## Usage
 
