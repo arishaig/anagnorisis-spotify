@@ -2,72 +2,26 @@
 
 let _unmatchedPage = 1;
 let _unmatchedTotal = 0;
+let _previewed = false;
 const PER_PAGE = 50;
 
-// ---------------------------------------------------------------------------
-// Init
-// ---------------------------------------------------------------------------
-
 document.addEventListener('DOMContentLoaded', () => {
-  // Show the page tab if Anagnorisis injected it
   const page = document.getElementById('spotify-page');
   if (page) page.style.display = '';
 
-  // Check for redirect param after OAuth
-  if (new URLSearchParams(window.location.search).get('spotify_connected') === '1') {
-    window.history.replaceState({}, '', window.location.pathname);
+  const fileInput = document.getElementById('spotify-file');
+  if (fileInput) {
+    fileInput.addEventListener('change', () => {
+      const name = fileInput.files[0] ? fileInput.files[0].name : 'No file selected';
+      setText('spotify-file-name', name);
+    });
   }
 
-  loadSettings();
+  // Background tasks emit their result here when done.
+  socket.on('emit_spotify_result', renderResult);
+
   loadStatus();
 });
-
-// ---------------------------------------------------------------------------
-// App credentials
-// ---------------------------------------------------------------------------
-
-function loadSettings() {
-  socket.emit('emit_spotify_page_get_settings', {}, (data) => {
-    setValue('spotify-client-id', data.client_id || '');
-    // Prefill redirect URI with a sensible default derived from the current host.
-    const redirect = data.redirect_uri || `${window.location.origin}/spotify/callback`;
-    setValue('spotify-redirect-uri', redirect);
-
-    const secretInput = document.getElementById('spotify-client-secret');
-    const hint = document.getElementById('spotify-secret-hint');
-    if (data.client_secret_set) {
-      if (secretInput) secretInput.placeholder = '••••••••  (saved — leave blank to keep)';
-      if (hint) hint.style.display = '';
-    } else {
-      if (hint) hint.style.display = 'none';
-    }
-  });
-}
-
-window.spotifySaveSettings = function () {
-  const btn = document.getElementById('spotify-save-settings');
-  const statusEl = document.getElementById('spotify-settings-status');
-  if (btn) btn.disabled = true;
-  if (statusEl) statusEl.textContent = 'Saving...';
-
-  const payload = {
-    client_id: getValue('spotify-client-id'),
-    client_secret: getValue('spotify-client-secret'),
-    redirect_uri: getValue('spotify-redirect-uri'),
-  };
-
-  socket.emit('emit_spotify_page_save_settings', payload, (resp) => {
-    if (btn) btn.disabled = false;
-    if (resp && resp.ok) {
-      if (statusEl) statusEl.textContent = 'Saved.';
-      setValue('spotify-client-secret', ''); // never keep the secret in the field
-      loadSettings();
-      loadStatus();
-    } else {
-      if (statusEl) statusEl.textContent = 'Save failed.';
-    }
-  });
-};
 
 // ---------------------------------------------------------------------------
 // Status
@@ -75,76 +29,122 @@ window.spotifySaveSettings = function () {
 
 function loadStatus() {
   socket.emit('emit_spotify_page_get_status', {}, (data) => {
-    const settings = document.getElementById('spotify-settings');
-
-    if (!data.configured) {
-      if (settings) settings.open = true; // expand the credentials form
-      hide('spotify-configured');
-      return;
+    if (data.has_upload) {
+      show('spotify-import-section');
     }
-
-    if (settings) settings.open = false; // collapse once configured
-    show('spotify-configured');
-
-    if (data.connected) {
-      setText('spotify-connection-status', 'Connected');
-      hide('spotify-connect-btn');
-      show('spotify-disconnect-btn');
-      show('spotify-sync-section');
-      renderSyncStats(data);
-      if (data.unmatched_count > 0) {
-        loadUnmatched(1);
-      }
-    } else {
-      setText('spotify-connection-status', 'Not connected');
-      show('spotify-connect-btn');
-      hide('spotify-disconnect-btn');
-      hide('spotify-sync-section');
+    if (data.unmatched_count > 0) {
+      show('spotify-unmatched-section');
+      loadUnmatched(1);
     }
   });
 }
 
-function renderSyncStats(data) {
-  if (data.last_synced) {
-    const d = new Date(data.last_synced);
-    setText('spotify-last-synced', d.toLocaleString());
-  } else {
-    setText('spotify-last-synced', 'Never');
-  }
-  setText('spotify-liked-count', data.liked_count ?? 0);
-  setText('spotify-matched-count', data.matched_count ?? 0);
-  setText('spotify-unmatched-count', data.unmatched_count ?? 0);
-
-  const unmatchedSection = document.getElementById('spotify-unmatched-section');
-  if (unmatchedSection) {
-    unmatchedSection.style.display = (data.unmatched_count > 0) ? '' : 'none';
-  }
-}
-
 // ---------------------------------------------------------------------------
-// Sync
+// Upload
 // ---------------------------------------------------------------------------
 
-window.spotifySync = function () {
-  const btn = document.getElementById('spotify-sync-btn');
-  const statusEl = document.getElementById('spotify-sync-status');
-  if (btn) btn.disabled = true;
-  if (statusEl) { statusEl.style.display = ''; statusEl.textContent = 'Starting sync...'; }
+window.spotifyUpload = function () {
+  const input = document.getElementById('spotify-file');
+  const btn = document.getElementById('spotify-upload-btn');
+  const statusEl = document.getElementById('spotify-upload-status');
+  const file = input && input.files[0];
+  if (!file) {
+    showStatus(statusEl, 'Choose a .zip first.');
+    return;
+  }
+  if (btn) btn.classList.add('is-loading');
+  showStatus(statusEl, 'Uploading…');
 
-  socket.emit('emit_spotify_page_sync', {}, (resp) => {
+  const form = new FormData();
+  form.append('file', file);
+  fetch('/spotify/upload', { method: 'POST', body: form, credentials: 'same-origin' })
+    .then(r => r.json().catch(() => ({})))
+    .then(resp => {
+      if (btn) btn.classList.remove('is-loading');
+      if (resp && resp.ok) {
+        showStatus(statusEl, 'Uploaded. Now run a preview below.');
+        show('spotify-import-section');
+        _previewed = false;
+        const commit = document.getElementById('spotify-commit-btn');
+        if (commit) commit.disabled = true;
+      } else {
+        showStatus(statusEl, `Upload failed: ${(resp && resp.error) || 'unknown error'}`);
+      }
+    })
+    .catch(err => {
+      if (btn) btn.classList.remove('is-loading');
+      showStatus(statusEl, `Upload failed: ${err}`);
+    });
+};
+
+// ---------------------------------------------------------------------------
+// Preview / commit
+// ---------------------------------------------------------------------------
+
+window.spotifyRun = function (kind) {
+  if (kind === 'commit' && !confirm('Write these ratings into your music library?')) return;
+
+  const statusEl = document.getElementById('spotify-run-status');
+  const btn = document.getElementById(kind === 'commit' ? 'spotify-commit-btn' : 'spotify-preview-btn');
+  if (btn) btn.classList.add('is-loading');
+  showStatus(statusEl, kind === 'commit' ? 'Importing… watch the task manager.' : 'Computing preview… watch the task manager.');
+
+  socket.emit(`emit_spotify_page_${kind}`, {}, (resp) => {
     if (resp && resp.error) {
-      if (statusEl) statusEl.textContent = `Error: ${resp.error}`;
-      if (btn) btn.disabled = false;
-      return;
+      if (btn) btn.classList.remove('is-loading');
+      showStatus(statusEl, `Error: ${resp.error}`);
     }
-    if (statusEl) statusEl.textContent = 'Sync queued. Check the task manager for progress.';
-    // Re-enable and refresh after a delay
-    setTimeout(() => {
-      if (btn) btn.disabled = false;
-      loadStatus();
-    }, 3000);
+    // The actual result arrives asynchronously via emit_spotify_result.
   });
 };
+
+function renderResult(summary) {
+  ['spotify-preview-btn', 'spotify-commit-btn'].forEach(id => {
+    const b = document.getElementById(id); if (b) b.classList.remove('is-loading');
+  });
+
+  setText('spotify-stat-total', summary.distinct_tracks ?? 0);
+  setText('spotify-stat-matched', summary.matched ?? 0);
+  setText('spotify-stat-rated', summary.rated_matched ?? 0);
+  setText('spotify-stat-unmatched', summary.unmatched_notable ?? 0);
+
+  const note = document.getElementById('spotify-result-note');
+  if (note) {
+    note.textContent = summary.dry_run
+      ? 'Preview only — nothing was written. Happy with the spread? Click “Import ratings”.'
+      : `Done — wrote ${summary.written} ratings to your library.`;
+  }
+
+  const tbody = document.getElementById('spotify-dist-tbody');
+  if (tbody) {
+    const dist = summary.distribution || {};
+    const max = Math.max(1, ...Object.values(dist));
+    tbody.innerHTML = Object.keys(dist)
+      .sort((a, b) => Number(b) - Number(a))
+      .map(r => {
+        const n = dist[r];
+        const w = Math.round((n / max) * 100);
+        return `<tr>
+          <td><strong>${esc(r)}/10</strong></td>
+          <td>${n}</td>
+          <td style="width:50%"><progress class="progress is-info" value="${w}" max="100">${w}%</progress></td>
+        </tr>`;
+      }).join('');
+  }
+
+  show('spotify-result');
+
+  const statusEl = document.getElementById('spotify-run-status');
+  if (summary.dry_run) {
+    _previewed = true;
+    const commit = document.getElementById('spotify-commit-btn');
+    if (commit) commit.disabled = false;
+    showStatus(statusEl, 'Preview ready.');
+  } else {
+    showStatus(statusEl, `Import complete — wrote ${summary.written} ratings.`);
+    loadStatus();
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Unmatched tracks
@@ -166,17 +166,15 @@ function renderUnmatched(items, total, page) {
   const next = document.getElementById('spotify-unmatched-next');
 
   if (badge) badge.textContent = total;
+  if (total > 0) show('spotify-unmatched-section');
   if (tbody) {
     tbody.innerHTML = items.map(m => `
       <tr id="unmatched-row-${m.id}">
+        <td>${m.rating != null ? esc(m.rating) + '/10' : ''}</td>
         <td>${esc(m.artist)}</td>
         <td>${esc(m.title)}</td>
         <td>${esc(m.album)}</td>
-        <td>
-          <button class="button is-small is-light" onclick="dismissUnmatched(${m.id})">
-            Dismiss
-          </button>
-        </td>
+        <td><button class="button is-small is-light" onclick="dismissUnmatched(${m.id})">Dismiss</button></td>
       </tr>
     `).join('');
   }
@@ -190,9 +188,7 @@ function renderUnmatched(items, total, page) {
 window.spotifyUnmatchedPage = function (delta) {
   const newPage = _unmatchedPage + delta;
   const totalPages = Math.ceil(_unmatchedTotal / PER_PAGE);
-  if (newPage >= 1 && newPage <= totalPages) {
-    loadUnmatched(newPage);
-  }
+  if (newPage >= 1 && newPage <= totalPages) loadUnmatched(newPage);
 };
 
 window.dismissUnmatched = function (id) {
@@ -202,14 +198,7 @@ window.dismissUnmatched = function (id) {
     _unmatchedTotal = Math.max(0, _unmatchedTotal - 1);
     const badge = document.getElementById('spotify-unmatched-badge');
     if (badge) badge.textContent = _unmatchedTotal;
-    const info = document.getElementById('spotify-unmatched-info');
-    if (info) {
-      const totalPages = Math.ceil(_unmatchedTotal / PER_PAGE);
-      info.textContent = `Page ${_unmatchedPage} of ${Math.max(totalPages, 1)} (${_unmatchedTotal} tracks)`;
-    }
-    if (_unmatchedTotal === 0) {
-      hide('spotify-unmatched-section');
-    }
+    if (_unmatchedTotal === 0) hide('spotify-unmatched-section');
   });
 };
 
@@ -220,8 +209,7 @@ window.dismissUnmatched = function (id) {
 function show(id) { const el = document.getElementById(id); if (el) el.style.display = ''; }
 function hide(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
 function setText(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
-function getValue(id) { const el = document.getElementById(id); return el ? el.value : ''; }
-function setValue(id, val) { const el = document.getElementById(id); if (el) el.value = val; }
+function showStatus(el, msg) { if (el) { el.style.display = ''; el.textContent = msg; } }
 function esc(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

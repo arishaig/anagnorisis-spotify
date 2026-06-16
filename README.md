@@ -1,90 +1,88 @@
 # anagnorisis-spotify
 
-Spotify import module for [Anagnorisis](https://github.com/volotat/Anagnorisis). Pulls your liked tracks, top tracks, and saved albums from Spotify, matches them to your local music library, and writes ratings into the Anagnorisis `music_library` table.
+Spotify import module for [Anagnorisis](https://github.com/volotat/Anagnorisis). It turns your
+Spotify listening history into ratings in your local `music_library` — **entirely offline**, from
+Spotify's GDPR "Download your data" export. No API, no developer app, no OAuth.
 
-## Rating formula
+> Spotify froze new API app creation for individuals (and gated dev-mode behind Premium + a 5-user
+> cap), so this module reads the data export instead. It works regardless of API access.
 
-| Signal | Rating |
-|---|---|
-| Liked + all-time top 10 | 5.0 |
-| Liked | 4.5 |
-| All-time top 10 | 5.0 |
-| All-time top 11–30 | 4.5 |
-| All-time top 31–50 | 4.0 |
-| Medium-term top 10 | 4.0 |
-| Medium-term top 11–30 | 3.5 |
-| Medium-term top 31–50 | 3.0 |
-| Saved album (not liked) | 3.0 |
-| No signal | *(null — model decides)* |
+## What it reads
 
-Existing ratings are only overwritten if the Spotify-derived rating is higher (configurable).
+| Export | File(s) | Signal |
+|---|---|---|
+| **Extended streaming history** | `Streaming_History_Audio_*.json` | per-track play counts |
+| **Account data** | `YourLibrary.json` | liked songs, saved albums, **disliked/hidden** |
+| **Account data** | `Playlist*.json` | playlist membership |
+
+Either export works on its own; upload both for the richest signal.
+
+## Rating model (Anagnorisis uses a 0–10 scale)
+
+A "qualifying play" is ≥30s and not skipped. The rating is the highest tier a track qualifies for:
+
+```
+play count   15+ →10   10–14 →9   7–9 →8   5–6 →7   3–4 →6   2 →5   1 →4
++ in a playlist (and played at least once) → at least 7
++ liked                                     → at least 9   (even with 0 plays)
++ disliked / hidden                         → overrides to 1  (wins over everything)
+```
+
+Tracks below the lowest play threshold and with no other signal are left **unrated** so
+Anagnorisis's own model decides them. Every number is configurable (see below), and you always
+**preview** before anything is written.
 
 ## Installation
 
-Clone into your Anagnorisis `modules/` directory **with this exact name** so Python can import it:
+Clone into your Anagnorisis `modules/` directory **with this exact name** (Python imports it as
+`modules.spotify_import`):
 
 ```bash
 cd /path/to/Anagnorisis/modules
-git clone https://github.com/YOUR_USERNAME/anagnorisis-spotify spotify_import
+git clone https://github.com/arishaig/anagnorisis-spotify spotify_import
+pip install -r modules/spotify_import/requirements.txt   # rapidfuzz (tinytag ships with Anagnorisis)
 ```
 
-Then install the Python dependencies inside the Anagnorisis environment:
+Restart Anagnorisis. A **Spotify import** tab appears automatically — modules are discovered by folder.
 
-```bash
-pip install -r modules/spotify_import/requirements.txt
-```
+## Getting your export
 
-## Spotify app setup
-
-1. Go to [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) and create an app.
-2. Under **Edit Settings → Redirect URIs**, add:
-   ```
-   https://YOUR_ANAGNORISIS_HOST/spotify/callback
-   ```
-3. Note your **Client ID** and **Client Secret**.
-
-## Configuration
-
-There are two ways to supply your Client ID, Client Secret, and redirect URI.
-
-### Option A — in the UI (recommended)
-
-Open the **Spotify** tab. If credentials aren't set yet, the **Spotify app credentials**
-form is expanded: paste your Client ID and Secret, confirm the pre-filled redirect URI,
-and click **Save credentials**. They're stored in the database — nothing to put in
-`config.yaml`, and the secret is never sent back to the browser once saved.
-
-### Option B — in `config.yaml`
-
-Useful for disaster recovery or declarative setups. UI-saved values override these.
-
-```yaml
-spotify_import:
-  client_id: "YOUR_CLIENT_ID"
-  client_secret: "YOUR_CLIENT_SECRET"
-  redirect_uri: "https://YOUR_ANAGNORISIS_HOST/spotify/callback"
-```
-
-### Optional tuning (either method)
-
-```yaml
-spotify_import:
-  match_threshold: 82          # 0–100 fuzzy match strictness (default: 82)
-  overwrite_ratings: if_higher # never | if_higher | always (default: if_higher)
-```
-
-Restart Anagnorisis (or just open the tab if it's already running). A **Spotify** tab
-appears in the UI automatically — the module is discovered from its folder name.
+1. Go to [spotify.com/account/privacy](https://www.spotify.com/account/privacy/).
+2. Tick **Extended streaming history** (play counts) and, for likes/dislikes/playlists, **Account data**.
+3. Spotify emails a `.zip` — the streaming history typically arrives in a few days, account data sooner.
 
 ## Usage
 
-1. Open the **Spotify** tab and click **Connect to Spotify**.
-2. Authorize the app on Spotify's consent screen.
-3. Click **Sync Now**. The task runs in the background — watch the task manager for progress.
-4. After sync, review **Unmatched tracks**: these are in your Spotify library but couldn't be found locally. Dismiss tracks you don't own locally.
+1. **Upload** the `.zip` on the Spotify import tab.
+2. **Preview (dry run)** — see the rating distribution and match counts; nothing is written.
+3. Tweak the model in `config.yaml` if you like, re-preview, then **Import ratings**.
+4. Review **Unmatched** — highly-rated tracks not found locally (worth acquiring or tagging).
 
-Re-run sync any time to pick up new liked tracks.
+## Configuration
+
+All optional — sensible defaults ship in `config.defaults.yaml`.
+
+```yaml
+spotify_import:
+  match_threshold: 82          # fuzzy match strictness (0–100)
+  overwrite_ratings: if_higher # never | if_higher | always
+  apply_dislikes: true         # apply dislikes even under if_higher
+  play_count_ratings:          # min_plays → rating (0–10); highest match wins
+    - {min_plays: 15, rating: 10}
+    - {min_plays: 10, rating: 9}
+    - {min_plays: 7,  rating: 8}
+    - {min_plays: 5,  rating: 7}
+    - {min_plays: 3,  rating: 6}
+    - {min_plays: 2,  rating: 5}
+    - {min_plays: 1,  rating: 4}
+  liked_rating: 9
+  playlist_rating: 7
+  disliked_rating: 1
+```
 
 ## How matching works
 
-Each local file's tags (artist + title) are read via TinyTag and indexed with normalised keys (lowercased, accents stripped, parenthetical suffixes removed). Spotify tracks are matched against this index using exact normalised lookup first, then `rapidfuzz.token_sort_ratio` with a configurable threshold. Matches and non-matches are cached in the `spotify_track_mapping` table so subsequent syncs are fast.
+Each local file's tags (artist + title) are read with TinyTag and indexed under a normalised key
+(lowercased, accents stripped, parentheticals/`feat.` removed). Export tracks are matched by exact
+normalised key first, then `rapidfuzz.token_sort_ratio` above `match_threshold`. Note the export's
+artist is the *album* artist, so features/compilations may need the unmatched-review pass.

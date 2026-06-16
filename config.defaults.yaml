@@ -1,15 +1,35 @@
 spotify_import:
-  client_id: null         # Required — Spotify app client ID
-  client_secret: null     # Required — Spotify app client secret
-  redirect_uri: null      # Required — e.g. https://music.example.com/spotify/callback
-
-  # Fuzzy match threshold (0–100). Lower = more matches but more false positives.
-  # 82 is a good starting point; raise to 90+ for stricter matching.
+  # Fuzzy match strictness when pairing Spotify tracks to local files (0–100).
+  # 82 is a good start; raise toward 90 for fewer false matches.
   match_threshold: 82
 
-  # Controls how Spotify-derived ratings interact with existing manual ratings.
-  # Options:
-  #   never     — only write if the track has no rating yet
-  #   if_higher — write if no rating exists or Spotify rating is higher (default)
-  #   always    — write whenever Spotify has a rating, regardless of existing value
+  # How imported ratings interact with existing manual ratings:
+  #   never     — only write where there's no rating yet
+  #   if_higher — write if empty or the imported rating is higher (default)
+  #   always    — overwrite regardless
   overwrite_ratings: if_higher
+
+  # Dislikes are a deliberate signal; apply them even under if_higher (a banned
+  # track will be lowered even if it currently has a higher rating).
+  apply_dislikes: true
+
+  # ISO date prefix marking "recent" plays (reserved for future recency tuning).
+  recent_since: "2025"
+
+  # ---- Rating model (Anagnorisis uses a 0–10 scale) ----
+  # Play-count tiers: a track's all-time qualifying plays (>=30s, not skipped)
+  # map to the rating of the highest threshold it meets. Tracks below the lowest
+  # threshold stay unrated (Anagnorisis's model decides).
+  play_count_ratings:
+    - {min_plays: 15, rating: 10}
+    - {min_plays: 10, rating: 9}
+    - {min_plays: 7,  rating: 8}
+    - {min_plays: 5,  rating: 7}
+    - {min_plays: 3,  rating: 6}
+    - {min_plays: 2,  rating: 5}
+    - {min_plays: 1,  rating: 4}
+
+  # Account-data signals (from YourLibrary.json / Playlist*.json), layered on top:
+  liked_rating: 9        # floor for liked songs (applies even with 0 plays)
+  playlist_rating: 7     # floor for played tracks that are also in a playlist
+  disliked_rating: 1     # override for disliked/hidden tracks (wins over all)

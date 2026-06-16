@@ -1,145 +1,91 @@
 <section id="spotify-page" class="section" style="display:none">
   <div class="container">
-    <h1 class="title">Spotify</h1>
-    <p class="subtitle">Import ratings from your Spotify library into Anagnorisis.</p>
+    <h1 class="title">Spotify import</h1>
+    <p class="subtitle">Turn your Spotify listening history into ratings in your local library.</p>
 
-    <!-- App credentials (collapsible; auto-opens when not yet configured) -->
-    <details id="spotify-settings" class="box">
-      <summary class="title is-5" style="cursor:pointer">Spotify app credentials</summary>
-      <p class="help mt-2 mb-4">
-        Create an app at
-        <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a>,
-        then paste its Client ID and Secret below. Add the redirect URI to the app's
-        <strong>Redirect URIs</strong> allowlist. (These can also be set in
-        <code>config.yaml</code> under <code>spotify_import</code> — values saved here override it.)
+    <!-- Step 1: upload -->
+    <div class="box">
+      <h2 class="title is-5">1 · Upload your data export</h2>
+      <p class="help mb-3">
+        Request your data at
+        <a href="https://www.spotify.com/account/privacy/" target="_blank" rel="noopener">spotify.com/account/privacy</a>
+        — tick <strong>Extended streaming history</strong> (play counts) and, for likes/dislikes/playlists,
+        <strong>Account data</strong>. Spotify emails a <code>.zip</code>; upload it here (either export, or both).
       </p>
-
-      <div class="field">
-        <label class="label">Client ID</label>
+      <div class="field has-addons">
         <div class="control">
-          <input id="spotify-client-id" class="input" type="text" placeholder="Spotify app client ID" autocomplete="off">
+          <div class="file has-name">
+            <label class="file-label">
+              <input id="spotify-file" class="file-input" type="file" accept=".zip">
+              <span class="file-cta"><span class="file-label">Choose .zip…</span></span>
+              <span id="spotify-file-name" class="file-name">No file selected</span>
+            </label>
+          </div>
+        </div>
+        <div class="control">
+          <button id="spotify-upload-btn" class="button is-link" onclick="spotifyUpload()">Upload</button>
         </div>
       </div>
+      <p id="spotify-upload-status" class="help" style="display:none"></p>
+    </div>
 
-      <div class="field">
-        <label class="label">Client Secret</label>
-        <div class="control">
-          <input id="spotify-client-secret" class="input" type="password" placeholder="Spotify app client secret" autocomplete="new-password">
-        </div>
-        <p id="spotify-secret-hint" class="help" style="display:none">A secret is already saved. Leave blank to keep it.</p>
+    <!-- Step 2: preview + commit -->
+    <div id="spotify-import-section" class="box" style="display:none">
+      <h2 class="title is-5">2 · Preview, then import</h2>
+      <p class="help mb-3">
+        <strong>Preview</strong> computes the ratings without changing anything. Review the spread, adjust
+        the model in <code>config.yaml</code> if needed, then <strong>Import</strong> to write them.
+      </p>
+      <div class="buttons">
+        <button id="spotify-preview-btn" class="button is-primary" onclick="spotifyRun('preview')">Preview (dry run)</button>
+        <button id="spotify-commit-btn" class="button is-danger" onclick="spotifyRun('commit')" disabled>
+          Import ratings
+        </button>
       </div>
+      <p id="spotify-run-status" class="help" style="display:none"></p>
 
-      <div class="field">
-        <label class="label">Redirect URI</label>
-        <div class="control">
-          <input id="spotify-redirect-uri" class="input" type="text" placeholder="https://your-instance/spotify/callback">
-        </div>
-        <p class="help">Add this <em>exact</em> URI to your Spotify app's Redirect URIs allowlist.</p>
-      </div>
-
-      <div class="field">
-        <div class="control">
-          <button id="spotify-save-settings" class="button is-primary" onclick="spotifySaveSettings()">Save credentials</button>
-          <span id="spotify-settings-status" class="help is-inline ml-2"></span>
-        </div>
-      </div>
-    </details>
-
-    <!-- Connection card -->
-    <div id="spotify-configured" style="display:none">
-      <div class="box">
+      <!-- Result summary -->
+      <div id="spotify-result" style="display:none">
+        <hr>
         <div class="level">
-          <div class="level-left">
-            <div class="level-item">
-              <div>
-                <p class="heading">Connection</p>
-                <p id="spotify-connection-status" class="title is-5">Checking...</p>
-              </div>
-            </div>
+          <div class="level-item has-text-centered">
+            <div><p class="heading">Tracks in export</p><p id="spotify-stat-total" class="title is-5">0</p></div>
           </div>
-          <div class="level-right">
-            <div class="level-item">
-              <a id="spotify-connect-btn" href="/spotify/auth" class="button is-success" style="display:none">
-                Connect to Spotify
-              </a>
-              <a id="spotify-disconnect-btn" href="/spotify/disconnect"
-                 class="button is-light is-small" style="display:none"
-                 onclick="return confirm('Disconnect Spotify? Your existing ratings will not be removed.')">
-                Disconnect
-              </a>
-            </div>
+          <div class="level-item has-text-centered">
+            <div><p class="heading">Matched locally</p><p id="spotify-stat-matched" class="title is-5">0</p></div>
+          </div>
+          <div class="level-item has-text-centered">
+            <div><p class="heading">Rated</p><p id="spotify-stat-rated" class="title is-5">0</p></div>
+          </div>
+          <div class="level-item has-text-centered">
+            <div><p class="heading">Notable unmatched</p><p id="spotify-stat-unmatched" class="title is-5">0</p></div>
           </div>
         </div>
+        <p id="spotify-result-note" class="help mb-2"></p>
+        <table class="table is-narrow is-fullwidth">
+          <thead><tr><th>Rating</th><th>Matched tracks</th><th></th></tr></thead>
+          <tbody id="spotify-dist-tbody"></tbody>
+        </table>
       </div>
+    </div>
 
-      <!-- Sync card (shown when connected) -->
-      <div id="spotify-sync-section" style="display:none">
-        <div class="box">
-          <div class="level">
-            <div class="level-left">
-              <div class="level-item">
-                <div>
-                  <p class="heading">Last sync</p>
-                  <p id="spotify-last-synced" class="title is-5">Never</p>
-                </div>
-              </div>
-              <div class="level-item" style="margin-left:2rem">
-                <div class="tags has-addons">
-                  <span class="tag is-dark">Liked</span>
-                  <span id="spotify-liked-count" class="tag is-info">0</span>
-                </div>
-              </div>
-              <div class="level-item">
-                <div class="tags has-addons">
-                  <span class="tag is-dark">Matched</span>
-                  <span id="spotify-matched-count" class="tag is-success">0</span>
-                </div>
-              </div>
-              <div class="level-item">
-                <div class="tags has-addons">
-                  <span class="tag is-dark">Unmatched</span>
-                  <span id="spotify-unmatched-count" class="tag is-warning">0</span>
-                </div>
-              </div>
-            </div>
-            <div class="level-right">
-              <div class="level-item">
-                <button id="spotify-sync-btn" class="button is-primary" onclick="spotifySync()">
-                  Sync Now
-                </button>
-              </div>
-            </div>
-          </div>
-          <p id="spotify-sync-status" class="help" style="display:none"></p>
-        </div>
-
-        <!-- Unmatched tracks -->
-        <div id="spotify-unmatched-section" style="display:none">
-          <h2 class="title is-5">Unmatched tracks
-            <span id="spotify-unmatched-badge" class="tag is-warning ml-2">0</span>
-          </h2>
-          <p class="help mb-3">
-            These tracks are in your Spotify library but couldn't be matched to a local file.
-            Dismiss tracks you don't have locally.
-          </p>
-          <table class="table is-fullwidth is-striped is-hoverable">
-            <thead>
-              <tr>
-                <th>Artist</th>
-                <th>Title</th>
-                <th>Album</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="spotify-unmatched-tbody"></tbody>
-          </table>
-          <nav class="pagination is-small" role="navigation">
-            <button id="spotify-unmatched-prev" class="pagination-previous" onclick="spotifyUnmatchedPage(-1)">Previous</button>
-            <button id="spotify-unmatched-next" class="pagination-next" onclick="spotifyUnmatchedPage(1)">Next</button>
-            <p id="spotify-unmatched-info" class="pagination-list help"></p>
-          </nav>
-        </div>
-      </div>
+    <!-- Unmatched review -->
+    <div id="spotify-unmatched-section" class="box" style="display:none">
+      <h2 class="title is-5">Unmatched — highly rated, not in your library
+        <span id="spotify-unmatched-badge" class="tag is-warning ml-2">0</span>
+      </h2>
+      <p class="help mb-3">
+        These scored well on Spotify but weren't found locally. Dismiss ones you don't intend to add.
+      </p>
+      <table class="table is-fullwidth is-striped is-hoverable">
+        <thead><tr><th>Rating</th><th>Artist</th><th>Title</th><th>Album</th><th></th></tr></thead>
+        <tbody id="spotify-unmatched-tbody"></tbody>
+      </table>
+      <nav class="pagination is-small" role="navigation">
+        <button id="spotify-unmatched-prev" class="pagination-previous" onclick="spotifyUnmatchedPage(-1)">Previous</button>
+        <button id="spotify-unmatched-next" class="pagination-next" onclick="spotifyUnmatchedPage(1)">Next</button>
+        <p id="spotify-unmatched-info" class="pagination-list help"></p>
+      </nav>
     </div>
   </div>
 </section>
