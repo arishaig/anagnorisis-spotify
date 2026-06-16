@@ -103,15 +103,22 @@ function renderResult(summary) {
     const b = document.getElementById(id); if (b) b.classList.remove('is-loading');
   });
 
+  const statusEl0 = document.getElementById('spotify-run-status');
+  if (summary && summary.error) {
+    showStatus(statusEl0, `Error: ${summary.error}`);
+    return;
+  }
+
+  const dash = v => (v == null ? '—' : v);
   setText('spotify-stat-total', summary.distinct_tracks ?? 0);
-  setText('spotify-stat-matched', summary.matched ?? 0);
-  setText('spotify-stat-rated', summary.rated_matched ?? 0);
-  setText('spotify-stat-unmatched', summary.unmatched_notable ?? 0);
+  setText('spotify-stat-matched', dash(summary.matched));
+  setText('spotify-stat-rated', dash(summary.dry_run ? summary.rated_total : summary.rated_matched));
+  setText('spotify-stat-unmatched', dash(summary.unmatched_notable));
 
   const note = document.getElementById('spotify-result-note');
   if (note) {
     note.textContent = summary.dry_run
-      ? 'Preview only — nothing was written. Happy with the spread? Click “Import ratings”.'
+      ? 'Preview only — ratings shown are from your export; local matching runs when you import. Happy with the spread? Click “Import ratings”.'
       : `Done — wrote ${summary.written} ratings to your library.`;
   }
 

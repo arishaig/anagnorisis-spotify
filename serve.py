@@ -25,7 +25,7 @@ from omegaconf import OmegaConf
 from src.socket_events import CommonSocketEvents
 import modules.spotify_import.db_models as spotify_db
 from modules.spotify_import import export_parser
-from modules.spotify_import.sync import run_import
+from modules.spotify_import.sync import run_import, preview_distribution
 
 
 def init_socket_events(socketio, app=None, cfg=None, data_folder='./project_data'):
@@ -42,16 +42,24 @@ def init_socket_events(socketio, app=None, cfg=None, data_folder='./project_data
         recent_since = str((raw.get('spotify_import') or {}).get('recent_since') or '')
 
         def task(ctx):
-            ctx.update(0, 'Reading export...')
-            parsed = export_parser.parse(upload_path, recent_since=recent_since)
-            summary = run_import(
-                app, parsed, raw,
-                status_callback=lambda m: ctx.update(0, m),
-                dry_run=dry_run,
-            )
-            done = 'Preview ready' if dry_run else f"Imported — wrote {summary['written']} ratings"
-            ctx.update(1.0, done)
-            socketio.emit('emit_spotify_result', summary)
+            try:
+                ctx.update(0, 'Reading export...')
+                parsed = export_parser.parse(upload_path, recent_since=recent_since)
+                if dry_run:
+                    # Library-free: just the rating distribution. Returns instantly.
+                    summary = preview_distribution(parsed, raw)
+                else:
+                    summary = run_import(
+                        app, parsed, raw,
+                        status_callback=lambda m: ctx.update(0, m),
+                    )
+                ctx.update(1.0, 'Preview ready' if dry_run else f"Imported — wrote {summary['written']} ratings")
+                socketio.emit('emit_spotify_result', summary)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                ctx.update(1.0, f'Error: {e}')
+                socketio.emit('emit_spotify_result', {'error': str(e), 'dry_run': dry_run})
 
         label = 'Spotify: preview ratings' if dry_run else 'Spotify: import ratings'
         app.task_manager.submit(label, task)

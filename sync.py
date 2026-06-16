@@ -161,6 +161,33 @@ def match_track(artist: str, title: str, index: dict, threshold: float = 82.0):
 NOTABLE_UNMATCHED_RATING = 7
 
 
+def preview_distribution(parsed, cfg: dict) -> dict:
+    """
+    Fast, library-free preview: the rating distribution implied by the export.
+
+    This is what the dry run shows — it answers "does my rating model look
+    right?" without the expensive local-library matching, so it returns
+    instantly. Actual matching happens only at import time (run_import).
+    """
+    model = _model(cfg)
+    distribution = Counter()
+    for sig in parsed.tracks.values():
+        rating = compute_rating(sig, model)
+        if rating is not None:
+            distribution[rating] += 1
+    return {
+        'dry_run': True,
+        'distinct_tracks': len(parsed.tracks),
+        'matched': None,            # unknown until import (matching is skipped here)
+        'rated_matched': None,
+        'rated_total': sum(distribution.values()),
+        'unmatched_notable': None,
+        'written': 0,
+        'distribution': {str(k): v for k, v in sorted(distribution.items(), reverse=True)},
+        'sources': parsed.summary(),
+    }
+
+
 def run_import(app, parsed, cfg: dict, status_callback=None, dry_run: bool = False) -> dict:
     """
     Match every signalled track to the local library and compute ratings.
