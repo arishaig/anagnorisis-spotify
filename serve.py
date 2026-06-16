@@ -32,10 +32,18 @@ def init_socket_events(socketio, app=None, cfg=None, data_folder='./project_data
     common = CommonSocketEvents(socketio, module_name='spotify')
     common.show_loading_status('Initializing Spotify import module...')
 
-    upload_path = os.path.join(data_folder, 'spotify_import_upload.zip')
+    # Persist the upload on the writable config volume, NOT the ephemeral app dir
+    # (the pod restarts and would otherwise lose it). Falls back to data_folder.
+    persist_dir = data_folder
+    if cfg is not None:
+        persist_dir = OmegaConf.select(cfg, 'main.project_config_directory', default=None) or data_folder
+    upload_path = os.path.join(str(persist_dir), 'spotify_import_upload.zip')
 
     def _raw_cfg() -> dict:
         return OmegaConf.to_container(cfg, resolve=True) if cfg is not None else {}
+
+    def _emit_progress(message, frac):
+        socketio.emit('emit_spotify_progress', {'message': message, 'progress': frac})
 
     def _queue_run(dry_run: bool):
         raw = _raw_cfg()
@@ -43,17 +51,19 @@ def init_socket_events(socketio, app=None, cfg=None, data_folder='./project_data
 
         def task(ctx):
             try:
-                ctx.update(0, 'Reading export...')
+                ctx.update(0.0, 'Reading export…')
+                _emit_progress('Reading export…', 0.02)
                 parsed = export_parser.parse(upload_path, recent_since=recent_since)
                 if dry_run:
                     # Library-free: just the rating distribution. Returns instantly.
                     summary = preview_distribution(parsed, raw)
                 else:
-                    summary = run_import(
-                        app, parsed, raw,
-                        status_callback=lambda m: ctx.update(0, m),
-                    )
+                    def report(msg, frac):
+                        ctx.update(frac if frac is not None else 0.0, msg)
+                        _emit_progress(msg, frac)
+                    summary = run_import(app, parsed, raw, status_callback=report)
                 ctx.update(1.0, 'Preview ready' if dry_run else f"Imported — wrote {summary['written']} ratings")
+                _emit_progress('Done', 1.0)
                 socketio.emit('emit_spotify_result', summary)
             except Exception as e:
                 import traceback

@@ -197,9 +197,9 @@ def run_import(app, parsed, cfg: dict, status_callback=None, dry_run: bool = Fal
     """
     from src.db_models import db
 
-    def status(msg):
+    def status(msg, frac=None):
         if status_callback:
-            status_callback(msg)
+            status_callback(msg, frac)
 
     s = (cfg or {}).get('spotify_import', {}) or {}
     threshold = float(s.get('match_threshold', 82))
@@ -207,9 +207,10 @@ def run_import(app, parsed, cfg: dict, status_callback=None, dry_run: bool = Fal
     apply_dislikes = bool(s.get('apply_dislikes', True))
     model = _model(cfg)
 
-    status('Building local library index...')
+    status('Reading tags across your music library…', 0.0)
     index = build_library_index(app)
-    status(f'Local library: {len(index)} tracks. Matching {len(parsed.tracks)} Spotify tracks...')
+    total = len(parsed.tracks)
+    status(f'Local library: {len(index)} tracks. Matching {total} Spotify tracks…', 0.1)
 
     distribution = Counter()      # rating value -> count (matched tracks)
     matched = unmatched_notable = written = 0
@@ -217,8 +218,9 @@ def run_import(app, parsed, cfg: dict, status_callback=None, dry_run: bool = Fal
 
     with app.app_context():
         for i, sig in enumerate(parsed.tracks.values()):
-            if i % 1000 == 0:
-                status(f'Matching {i}/{len(parsed.tracks)}...')
+            if i % 250 == 0:
+                # Matching spans 10%→95% of the bar; index build was the first 10%.
+                status(f'Matching {i}/{total}…', 0.1 + 0.85 * (i / total if total else 1))
 
             rating = compute_rating(sig, model)
             file_path, confidence = match_track(sig.artist, sig.title, index, threshold)
@@ -239,11 +241,12 @@ def run_import(app, parsed, cfg: dict, status_callback=None, dry_run: bool = Fal
                     if len(notable_examples) < 200 and not dry_run:
                         _record_mapping(sig, None, 0.0, rating)
 
+        status('Saving…', 0.97)
         if not dry_run:
             _save_state(parsed, matched, unmatched_notable, written)
             db.session.commit()
 
-    status('Preview ready.' if dry_run else f'Import complete: wrote {written} ratings.')
+    status(f'Import complete: wrote {written} ratings.', 1.0)
     return {
         'dry_run': dry_run,
         'distinct_tracks': len(parsed.tracks),

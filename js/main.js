@@ -17,11 +17,31 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Background tasks emit their result here when done.
+  // Background tasks emit progress + a final result over the websocket.
+  socket.on('emit_spotify_progress', updateProgress);
   socket.on('emit_spotify_result', renderResult);
 
   loadStatus();
 });
+
+function updateProgress(data) {
+  const bar = document.getElementById('spotify-progress');
+  const statusEl = document.getElementById('spotify-run-status');
+  if (bar) {
+    bar.style.display = '';
+    if (data.progress == null) {
+      bar.removeAttribute('value');          // indeterminate
+    } else {
+      bar.value = Math.round(data.progress * 100);
+    }
+  }
+  if (data.message) showStatus(statusEl, data.message);
+}
+
+function hideProgress() {
+  const bar = document.getElementById('spotify-progress');
+  if (bar) bar.style.display = 'none';
+}
 
 // ---------------------------------------------------------------------------
 // Status
@@ -87,14 +107,15 @@ window.spotifyRun = function (kind) {
   const statusEl = document.getElementById('spotify-run-status');
   const btn = document.getElementById(kind === 'commit' ? 'spotify-commit-btn' : 'spotify-preview-btn');
   if (btn) btn.classList.add('is-loading');
-  showStatus(statusEl, kind === 'commit' ? 'Importing… watch the task manager.' : 'Computing preview… watch the task manager.');
+  updateProgress({ message: kind === 'commit' ? 'Starting import…' : 'Computing preview…', progress: 0 });
 
   socket.emit(`emit_spotify_page_${kind}`, {}, (resp) => {
     if (resp && resp.error) {
       if (btn) btn.classList.remove('is-loading');
+      hideProgress();
       showStatus(statusEl, `Error: ${resp.error}`);
     }
-    // The actual result arrives asynchronously via emit_spotify_result.
+    // Progress + the final result arrive asynchronously over the websocket.
   });
 };
 
@@ -102,6 +123,7 @@ function renderResult(summary) {
   ['spotify-preview-btn', 'spotify-commit-btn'].forEach(id => {
     const b = document.getElementById(id); if (b) b.classList.remove('is-loading');
   });
+  hideProgress();
 
   const statusEl0 = document.getElementById('spotify-run-status');
   if (summary && summary.error) {
